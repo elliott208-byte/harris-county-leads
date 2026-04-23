@@ -1,203 +1,71 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Harris County Motivated Seller Leads</title>
-  <style>
-    :root {
-      --bg:#0f172a; --card:#1e293b; --accent:#38bdf8;
-      --text:#e2e8f0; --muted:#94a3b8; --border:#334155;
-    }
-    * { box-sizing:border-box; margin:0; padding:0; }
-    body { background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; padding:1.5rem; }
-    h1  { color:var(--accent); font-size:1.6rem; margin-bottom:.25rem; }
-    .meta { color:var(--muted); font-size:.85rem; margin-bottom:1.5rem; }
-    .stats { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; }
-    .stat { background:var(--card); border-radius:.75rem; padding:1rem 1.5rem; min-width:140px; }
-    .stat-val { font-size:2rem; font-weight:700; color:var(--accent); }
-    .stat-lbl { font-size:.8rem; color:var(--muted); margin-top:.25rem; }
-    .controls { display:flex; gap:.75rem; flex-wrap:wrap; margin-bottom:1rem; align-items:center; }
-    input, select {
-      background:var(--card); border:1px solid var(--border);
-      color:var(--text); border-radius:.5rem; padding:.5rem .75rem; font-size:.9rem;
-    }
-    input:focus, select:focus { outline:2px solid var(--accent); }
-    .dl-btn {
-      background:var(--accent); color:#0f172a; font-weight:700;
-      border:none; border-radius:.5rem; padding:.5rem 1.25rem;
-      cursor:pointer; font-size:.9rem; white-space:nowrap;
-    }
-    .dl-btn:hover { opacity:.85; }
-    .tbl-wrap { overflow-x:auto; border-radius:.75rem; border:1px solid var(--border); }
-    table { width:100%; border-collapse:collapse; font-size:.82rem; }
-    th {
-      background:#0f172a; color:var(--muted); text-align:left;
-      padding:.6rem .75rem; position:sticky; top:0;
-      border-bottom:1px solid var(--border); white-space:nowrap;
-    }
-    td { padding:.55rem .75rem; border-bottom:1px solid #1e293b; vertical-align:top; }
-    tr:hover td { background:#1e293b; }
-    .score { font-weight:700; font-size:1rem; }
-    .hi { color:#4ade80; } .md { color:#facc15; } .lo { color:#f87171; }
-    .flag {
-      display:inline-block; background:#1e3a5f; color:#7dd3fc;
-      border-radius:999px; padding:.15rem .55rem; font-size:.72rem; margin:.1rem;
-    }
-    a { color:var(--accent); text-decoration:none; }
-    a:hover { text-decoration:underline; }
-    .empty { text-align:center; padding:3rem; color:var(--muted); }
-    .badge-0 { color:var(--muted); font-style:italic; }
-  </style>
-</head>
-<body>
-  <h1>&#127968; Harris County Motivated Seller Leads</h1>
-  <p class="meta" id="meta">Loading...</p>
+name: Harris County Lead Scraper
 
-  <div class="stats">
-    <div class="stat"><div class="stat-val" id="s-total">-</div><div class="stat-lbl">Total Leads</div></div>
-    <div class="stat"><div class="stat-val" id="s-addr">-</div><div class="stat-lbl">With Address</div></div>
-    <div class="stat"><div class="stat-val" id="s-hi">-</div><div class="stat-lbl">Score 70+</div></div>
-    <div class="stat"><div class="stat-val" id="s-range">-</div><div class="stat-lbl">Date Range</div></div>
-  </div>
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
 
-  <div class="controls">
-    <input id="q" type="search" placeholder="Search owner / doc # / address..." style="flex:1;min-width:200px" />
-    <select id="cat-filter"><option value="">All Types</option></select>
-    <select id="score-filter">
-      <option value="0">All Scores</option>
-      <option value="70">Score 70+</option>
-      <option value="50">Score 50+</option>
-    </select>
-    <button class="dl-btn" onclick="downloadCSV()">&#11015; Download CSV</button>
-  </div>
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Score</th><th>Doc #</th><th>Type</th><th>Filed</th>
-          <th>Owner / Grantor</th><th>Amount</th>
-          <th>Property Address</th><th>Flags</th><th>Link</th>
-        </tr>
-      </thead>
-      <tbody id="tbody">
-        <tr><td colspan="9" class="empty">Loading records...</td></tr>
-      </tbody>
-    </table>
-  </div>
+jobs:
+  scrape:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-<script>
-let ALL = [];
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-async function load() {
-  try {
-    const res  = await fetch('records.json?_=' + Date.now());
-    const data = await res.json();
-    ALL = data.records || [];
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r scraper/requirements.txt
 
-    document.getElementById('meta').textContent =
-      'Fetched: ' + (data.fetched_at || 'N/A') +
-      '  |  Source: ' + (data.source || '') +
-      '  |  Range: ' + ((data.date_range||{}).from||'') +
-      ' to ' + ((data.date_range||{}).to||'');
+      - name: Install Playwright
+        run: python -m playwright install --with-deps chromium
 
-    document.getElementById('s-total').textContent = data.total || 0;
-    document.getElementById('s-addr').textContent  = data.with_address || 0;
-    document.getElementById('s-hi').textContent    = ALL.filter(r => r.score >= 70).length;
-    const dr = data.date_range || {};
-    document.getElementById('s-range').textContent =
-      (dr.from || 'N/A') + ' - ' + (dr.to || 'N/A');
+      - name: Run scraper
+        run: python scraper/fetch.py
+        env:
+          PYTHONUNBUFFERED: "1"
 
-    const cats = [...new Set(ALL.map(r => r.cat_label).filter(Boolean))].sort();
-    const sel  = document.getElementById('cat-filter');
-    cats.forEach(c => {
-      const o = document.createElement('option');
-      o.value = c; o.textContent = c; sel.appendChild(o);
-    });
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dashboard/records.json data/records.json data/ghl_export.csv
+          git diff --cached --quiet || git commit -m "chore: update leads $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
 
-    render();
-  } catch(e) {
-    document.getElementById('meta').textContent = 'Error loading records: ' + e.message;
-    document.getElementById('tbody').innerHTML =
-      '<tr><td colspan="9" class="empty">Could not load records.json</td></tr>';
-  }
-}
+  deploy-pages:
+    needs: scrape
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
 
-function scoreClass(s) { return s >= 70 ? 'hi' : s >= 50 ? 'md' : 'lo'; }
+      - name: Build site folder
+        run: |
+          mkdir -p _site
+          cp dashboard/index.html _site/index.html
+          cp dashboard/records.json _site/records.json
 
-function render() {
-  const q     = document.getElementById('q').value.toLowerCase();
-  const cat   = document.getElementById('cat-filter').value;
-  const minSc = parseInt(document.getElementById('score-filter').value) || 0;
+      - uses: actions/configure-pages@v5
 
-  const rows = ALL.filter(r => {
-    if (cat && r.cat_label !== cat) return false;
-    if (r.score < minSc) return false;
-    if (q) {
-      const hay = [r.owner, r.doc_num, r.prop_address, r.doc_type, r.grantee]
-                    .join(' ').toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site/
 
-  const tbody = document.getElementById('tbody');
-
-  if (!rows.length) {
-    tbody.innerHTML =
-      '<tr><td colspan="9" class="empty">No records match your filters.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = rows.map(r => {
-    const addr = [r.prop_address, r.prop_city, r.prop_state, r.prop_zip]
-                   .filter(Boolean).join(', ');
-    const flagHtml = (r.flags || [])
-      .map(f => '<span class="flag">' + f + '</span>').join('');
-    const link = r.clerk_url
-      ? '<a href="' + r.clerk_url + '" target="_blank" rel="noopener">View &#8599;</a>'
-      : '';
-    return '<tr>' +
-      '<td><span class="score ' + scoreClass(r.score) + '">' + r.score + '</span></td>' +
-      '<td>' + (r.doc_num  || '') + '</td>' +
-      '<td>' + (r.cat_label|| '') + '</td>' +
-      '<td>' + (r.filed    || '') + '</td>' +
-      '<td>' + (r.owner    || '') + '</td>' +
-      '<td>' + (r.amount   || '') + '</td>' +
-      '<td>' + addr + '</td>' +
-      '<td>' + flagHtml + '</td>' +
-      '<td>' + link + '</td>' +
-      '</tr>';
-  }).join('');
-}
-
-function downloadCSV() {
-  const cols = [
-    'score','doc_num','doc_type','cat_label','filed','owner','grantee',
-    'amount','prop_address','prop_city','prop_zip',
-    'mail_address','mail_city','mail_state','mail_zip','flags','clerk_url'
-  ];
-  const esc  = v => '"' + String(v || '').replace(/"/g, '""') + '"';
-  const rows = [cols.join(',')];
-  ALL.forEach(r => {
-    rows.push(cols.map(c =>
-      esc(c === 'flags' ? (r.flags || []).join(' | ') : (r[c] || ''))
-    ).join(','));
-  });
-  const blob = new Blob([rows.join('
-')], { type: 'text/csv' });
-  const a    = document.createElement('a');
-  a.href     = URL.createObjectURL(blob);
-  a.download = 'harris_leads_' + new Date().toISOString().slice(0,10) + '.csv';
-  a.click();
-}
-
-document.getElementById('q').addEventListener('input', render);
-document.getElementById('cat-filter').addEventListener('change', render);
-document.getElementById('score-filter').addEventListener('change', render);
-
-load();
-</script>
-</body>
-</html>
+      - id: deployment
+        uses: actions/deploy-pages@v4
